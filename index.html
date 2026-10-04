@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>SuperMerda — Edição 50 Fases</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#07111f;font-family:Arial,sans-serif;color:#fff}
+body{touch-action:none}canvas{display:block;width:100vw;height:100vh;background:#69c7ff}
+button{font:700 18px Arial;border:0;border-radius:14px;padding:13px 18px;margin:7px;background:#fff;color:#172033;box-shadow:0 5px 0 #9aa6b8}
+button:active{transform:translateY(3px);box-shadow:0 2px 0 #9aa6b8}
+.screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(#10233ddd,#07111fee);z-index:20}
+.panel{width:min(92vw,620px);padding:25px;border:3px solid #fff;border-radius:25px;background:linear-gradient(145deg,#182b4a,#0d172b);box-shadow:0 18px 60px #0009;text-align:center}
+h1{font-size:clamp(34px,9vw,70px);margin:0 0 8px;text-shadow:5px 5px #000}
+h2{margin:8px 0 15px}.small{opacity:.8;font-size:14px;line-height:1.4}
+#introText{min-height:110px;font-size:19px;line-height:1.5}
+#menuBtns{display:flex;flex-wrap:wrap;justify-content:center}
+#hud{position:fixed;z-index:5;left:10px;right:10px;top:9px;display:flex;justify-content:space-between;pointer-events:none;text-shadow:2px 2px #000;font-weight:800}
+.badge{background:#07111dcc;border:1px solid #ffffff55;border-radius:12px;padding:7px 10px}
+#controls{position:fixed;z-index:6;left:0;right:0;bottom:10px;display:flex;justify-content:space-between;padding:0 12px;pointer-events:none}
+.pad{display:flex;gap:10px}.ctrl{pointer-events:auto;width:68px;height:58px;padding:0;border-radius:18px;background:#ffffffcc}
+#toast{position:fixed;z-index:30;left:50%;top:17%;transform:translateX(-50%);background:#07111fee;padding:12px 18px;border-radius:14px;display:none;font-weight:bold}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div class="badge" id="lvl">FASE 1/50</div><div class="badge" style="position:fixed;left:50%;transform:translateX(-50%);">FIX 1.1</div>
+  <div class="badge" id="stats">❤️ 3　🪙 0</div>
+</div>
+
+<div id="controls" class="hidden">
+ <div class="pad"><button class="ctrl" id="left">◀</button><button class="ctrl" id="right">▶</button></div>
+ <div class="pad"><button class="ctrl" id="jump">⬆ PULAR</button><button class="ctrl" id="pause">Ⅱ</button></div>
+</div>
+
+<div id="toast"></div>
+
+<div id="menu" class="screen">
+ <div class="panel">
+  <h1>SUPER<span style="color:#ffdb35">MERDA</span></h1>
+  <h2>ED. 50 FASES — RESENHA SUPREMA</h2>
+  <div class="small">A aventura mais estável do robô resenhado.</div>
+  <div id="menuBtns">
+   <button id="start">▶ JOGAR</button>
+   <button id="continue">↻ CONTINUAR</button>
+   <button id="how">❓ CONTROLES</button>
+   <button id="sound">🔊 SOM: ON</button>
+  </div>
+  <div class="small" style="margin-top:12px">Progresso salvo automaticamente neste navegador.</div>
+ </div>
+</div>
+
+<div id="intro" class="screen hidden">
+ <div class="panel">
+  <h1>INTRO</h1>
+  <div id="introText"></div>
+  <button id="nextIntro">CONTINUAR ▶</button>
+ </div>
+</div>
+
+<div id="pauseScreen" class="screen hidden">
+ <div class="panel">
+  <h1>PAUSADO</h1>
+  <button id="resume">▶ VOLTAR</button>
+  <button id="quit">⌂ MENU</button>
+ </div>
+</div>
+
+<div id="winScreen" class="screen hidden">
+ <div class="panel">
+  <h1 id="winTitle">FASE CONCLUÍDA!</h1>
+  <div id="winText"></div>
+  <button id="nextLevel">PRÓXIMA FASE ▶</button>
+ </div>
+</div>
+
+<script>
+'use strict';
+const C=document.getElementById('game'),ctx=C.getContext('2d',{alpha:false});
+let W=innerWidth,H=innerHeight,DPR=1;
+function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;C.width=W*DPR;C.height=H*DPR;C.style.width=W+'px';C.style.height=H+'px';ctx.setTransform(DPR,0,0,DPR,0,0)}
+addEventListener('resize',resize); resize();
+
+const menu=document.getElementById('menu'),intro=document.getElementById('intro'),pauseScreen=document.getElementById('pauseScreen'),winScreen=document.getElementById('winScreen');
+const hud=document.getElementById('hud'),controls=document.getElementById('controls'),toast=document.getElementById('toast');
+let audioOn=true,audioCtx=null,level=1,running=false,paused=false,last=0,cam=0,coins=0,lives=3,keys={left:false,right:false},jumpQueued=false;
+let p,plats,enemies,items,finish,worldW,shake=0,particles=[],levelStart=0;
+
+function audio(){if(!audioOn)return;if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended')audioCtx.resume()}
+function beep(freq=440,dur=.08,type='square',vol=.035){
+ if(!audioOn)return; audio(); if(!audioCtx)return;
+ const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type=type;o.frequency.value=freq;g.gain.value=vol;
+ o.connect(g);g.connect(audioCtx.destination);o.start();g.gain.exponentialRampToValueAtTime(.0001,audioCtx.currentTime+dur);o.stop(audioCtx.currentTime+dur);
+}
+function musicTick(){
+ if(!audioOn)return;
+ const base=level%2?220:277; beep(base,.06,'triangle',.018); setTimeout(()=>beep(base*1.25,.06,'triangle',.014),90);
+}
+
+function toastMsg(t){toast.textContent=t;toast.style.display='block';clearTimeout(toastMsg.t);toastMsg.t=setTimeout(()=>toast.style.display='none',1500)}
+
+function introStart(){
+ menu.classList.add('hidden');intro.classList.remove('hidden');
+ const lines=[
+  'Tudo começou num piquenique da resenha...',
+  'De repente, apareceu um monstro tão resenhado que todo mundo desmaiou.',
+  'O Tio Felipe foi levado! 😱',
+  'Agora o Robô Resenhado precisa atravessar 50 fases para salvar o Tio Felipe.',
+  'Na Fase 50 acontece o resgate final. Bora, resenha!'
+ ];
+ let i=0; const text=document.getElementById('introText');
+ function show(){text.textContent=lines[i];}
+ show();
+ document.getElementById('nextIntro').onclick=()=>{audio();beep(500);i++;if(i<lines.length)show();else{intro.classList.add('hidden');startGame(1)}}; 
+}
+function startGame(n=1){
+ audio();level=Math.max(1,Math.min(50,n));coins=0;lives=3;paused=false;buildLevel(level);
+ menu.classList.add('hidden');winScreen.classList.add('hidden');pauseScreen.classList.add('hidden');hud.classList.remove('hidden');controls.classList.remove('hidden');running=true;last=performance.now();musicTick();
+}
+function buildLevel(n){
+ const diff=n-1, gap=170+Math.min(70,diff*2), count=12+Math.min(18,Math.floor(diff/2));
+ worldW=Math.max(4200, count*gap+900);
+ plats=[{x:-300,y:H-92,w:1000,h:92}];
+ let x=700;
+ for(let i=0;i<count;i++){
+   const width=190+(i*37+n*11)%180;
+   const y=Math.max(H-250, H-125-((i*61+n*17)%180));
+   plats.push({x,y,w:width,h:30});
+   if(i%3!==1) plats.push({x:x+width+90,y:y+70,w:150,h:28});
+   x += width + gap + (i%4)*30;
+ }
+ plats.push({x:worldW-900,y:H-150,w:900,h:150});
+ items=[]; enemies=[];
+ for(let i=0;i<Math.min(10,3+Math.floor(n/5));i++){
+   const px=850+i*(worldW-1500)/Math.min(10,3+Math.floor(n/5));
+   items.push({x:px,y:H-210-(i%3)*75,r:9,taken:false});
+ }
+ for(let i=0;i<Math.min(9,1+Math.floor(n/6));i++){
+   const ex=1100+i*(worldW-1800)/Math.min(9,1+Math.floor(n/6));
+   enemies.push({x:ex,y:H-130,w:34,h:34,vx:(i%2?1:-1)*(45+n*1.5),alive:true});
+ }
+ finish={x:worldW-180,y:H-260,w:55,h:110};
+ p={x:80,y:H-180,w:42,h:54,vx:0,vy:0,onGround:false,runTime:0,inv:0,dir:1};
+ cam=0;particles=[];levelStart=performance.now();
+ updateHud();
+}
+function updateHud(){document.getElementById('lvl').textContent=`FASE ${level}/50`;document.getElementById('stats').textContent=`❤️ ${lives}　🪙 ${coins}`}
+function rects(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+function spawn(x,y,n=6){
+ for(let i=0;i<n;i++)particles.push({x,y,vx:(Math.random()-.5)*220,vy:(Math.random()-.8)*240,t:.45});
+}
+function hurt(){
+ if(p.inv>0)return;
+ lives--;p.inv=1.5;shake=10;spawn(p.x+p.w/2,p.y+p.h/2,12);beep(90,.16,'sawtooth',.05);updateHud();
+ if(lives<=0){running=false;controls.classList.add('hidden');hud.classList.add('hidden');winScreen.classList.remove('hidden');document.getElementById('winTitle').textContent='GAME OVER 💥';document.getElementById('winText').textContent=`A Fase ${level} venceu desta vez. Tenta de novo!`;document.getElementById('nextLevel').textContent='↻ TENTAR FASE';}
+ else{p.x=80;p.y=H-180;p.vx=p.vy=0}
+}
+function complete(){
+ running=false;hud.classList.add('hidden');controls.classList.add('hidden');winScreen.classList.remove('hidden');
+ localStorage.setItem('supermerdaProgress',String(Math.max(Number(localStorage.getItem('supermerdaProgress')||1),Math.min(50,level+1))));
+ if(level===50){document.getElementById('winTitle').textContent='🏆 TIO FELIPE SALVO! 🏆';document.getElementById('winText').textContent='VOCÊ VENCEU AS 50 FASES! O Tio Felipe foi resgatado e a resenha está salva! 🎉';document.getElementById('nextLevel').textContent='↻ JOGAR DE NOVO';beep(880,.12);setTimeout(()=>beep(1100,.15),130);}
+ else{document.getElementById('winTitle').textContent=`FASE ${level} CONCLUÍDA!`;document.getElementById('winText').textContent=`Moedas: ${coins} • Próxima: Fase ${level+1}`;document.getElementById('nextLevel').textContent='PRÓXIMA FASE ▶';beep(660,.1);setTimeout(()=>beep(880,.12),100)}
+}
+function update(dt){
+ if(!running||paused)return;
+ dt=Math.min(dt,.025); // estabilidade: limita o passo
+ const accel=300+(p.runTime>.55?100:0), max= p.runTime>.55?320:230;
+ if(keys.left){p.vx-=accel*dt;p.dir=-1;p.runTime+=dt}
+ else if(keys.right){p.vx+=accel*dt;p.dir=1;p.runTime+=dt}
+ else{p.runTime=0;p.vx*=Math.pow(.0008,dt)}
+ p.vx=Math.max(-max,Math.min(max,p.vx));
+ if(jumpQueued){if(p.onGround){p.vy=-(p.runTime>.55?690:620);p.onGround=false;beep(520,.08,'square',.025)}jumpQueued=false}
+ p.vy+=1500*dt;
+ const oldY=p.y;p.x+=p.vx*dt;p.y+=p.vy*dt;p.onGround=false;
+ if(p.x<0){p.x=0;p.vx=0}
+ for(const q of plats){
+   if(p.x+p.w>q.x&&p.x<q.x+q.w&&oldY+p.h<=q.y+6&&p.y+p.h>=q.y&&p.vy>=0){p.y=q.y-p.h;p.vy=0;p.onGround=true}
+ }
+ if(p.y>H+220){hurt();return}
+ for(const it of items)if(!it.taken&&Math.hypot(p.x+p.w/2-it.x,p.y+p.h/2-it.y)<30){it.taken=true;coins++;spawn(it.x,it.y,7);beep(780,.06,'triangle',.025);updateHud()}
+ for(const e of enemies)if(e.alive){
+   e.x+=e.vx*dt;
+   if(e.x<300||e.x>worldW-700)e.vx*=-1;
+   if(rects(p,e)){
+     if(p.vy>100&&p.y+p.h<e.y+18){e.alive=false;p.vy=-430;spawn(e.x,e.y,10);beep(180,.1,'square',.04)}
+     else hurt();
+   }
+ }
+ if(rects(p,finish))complete();
+ p.inv=Math.max(0,p.inv-dt);
+ const target=Math.max(0,p.x-W/3);cam+=(target-cam)*Math.min(1,dt*7);
+ for(const a of particles){a.x+=a.vx*dt;a.y+=a.vy*dt;a.vy+=500*dt;a.t-=dt}
+ particles=particles.filter(a=>a.t>0);
+ updateHud();
+}
+function draw(){
+ const sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#58b9ff');sky.addColorStop(1,'#d9f5ff');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ ctx.save();ctx.translate(-cam,0);
+ // fundo
+ ctx.fillStyle='#5aa06b';for(let x=-500;x<worldW+500;x+=260){ctx.beginPath();ctx.arc(x,H-65,170,Math.PI,Math.PI*2);ctx.fill()}
+ // plataformas
+ for(const q of plats){ctx.fillStyle='#6b4528';ctx.fillRect(q.x,q.y,q.w,q.h);ctx.fillStyle='#55b947';ctx.fillRect(q.x,q.y,q.w,10)}
+ // moedas
+ for(const it of items)if(!it.taken){ctx.fillStyle='#ffd72e';ctx.beginPath();ctx.arc(it.x,it.y,10+Math.sin(performance.now()/130)*2,0,Math.PI*2);ctx.fill();ctx.fillStyle='#9b6500';ctx.font='bold 12px Arial';ctx.fillText('$',it.x-4,it.y+4)}
+ // inimigos
+ for(const e of enemies)if(e.alive){ctx.fillStyle='#7a35c9';ctx.fillRect(e.x,e.y,e.w,e.h);ctx.fillStyle='#fff';ctx.fillRect(e.x+7,e.y+8,7,8);ctx.fillRect(e.x+21,e.y+8,7,8);ctx.fillStyle='#111';ctx.fillRect(e.x+9,e.y+10,3,4);ctx.fillRect(e.x+23,e.y+10,3,4)}
+ // bandeira
+ ctx.fillStyle='#222';ctx.fillRect(finish.x+8,finish.y,7,finish.h);ctx.fillStyle='#ff3b30';ctx.beginPath();ctx.moveTo(finish.x+15,finish.y+5);ctx.lineTo(finish.x+65,finish.y+25);ctx.lineTo(finish.x+15,finish.y+45);ctx.fill();
+ // jogador robô — desenho compatível com navegadores antigos
+ if(p.inv<=0||Math.floor(p.inv*12)%2===0){
+   ctx.save();
+   ctx.translate(Math.round(p.x+p.w/2),Math.round(p.y+p.h/2));
+   ctx.scale(p.dir,1);
+   // pernas
+   ctx.fillStyle='#171717'; ctx.fillRect(-14,17,10,16); ctx.fillRect(4,17,10,16);
+   // corpo
+   ctx.fillStyle='#ffd83d'; ctx.strokeStyle='#151515'; ctx.lineWidth=4;
+   ctx.beginPath(); ctx.moveTo(-20,-22); ctx.lineTo(20,-22); ctx.lineTo(21,12);
+   ctx.quadraticCurveTo(0,24,-21,12); ctx.closePath(); ctx.fill(); ctx.stroke();
+   // chapéu
+   ctx.fillStyle='#171717'; ctx.fillRect(-24,-31,48,10); ctx.fillRect(-15,-39,30,9);
+   // olhos
+   ctx.fillStyle='#52ff7a'; ctx.beginPath(); ctx.arc(-10,-5,7,0,Math.PI*2); ctx.arc(10,-5,7,0,Math.PI*2); ctx.fill();
+   ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(-8,-4,2.5,0,Math.PI*2); ctx.arc(12,-4,2.5,0,Math.PI*2); ctx.fill();
+   // boca
+   ctx.fillStyle='#111'; ctx.fillRect(-12,7,24,5);
+   // brilho/identificador
+   ctx.fillStyle='#fff'; ctx.font='bold 8px Arial'; ctx.fillText('R',-3,-25);
+   ctx.restore();
+ }
+ for(const a of particles){ctx.globalAlpha=Math.max(0,a.t/.45);ctx.fillStyle='#ffe34d';ctx.fillRect(a.x,a.y,6,6);ctx.globalAlpha=1}
+ ctx.restore();
+ if(shake>0){shake*=.8}
+}
+function loop(t){
+ const dt=Math.min((t-last)/1000||0,.033); last=t;
+ try{ update(dt); }catch(err){ console.error('SuperMerda update:',err); running=false; }
+ try{ draw(); }catch(err){ console.error('SuperMerda draw:',err); }
+ requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+document.getElementById('start').onclick=()=>introStart();
+document.getElementById('continue').onclick=()=>{audio();startGame(Number(localStorage.getItem('supermerdaProgress')||1))};
+document.getElementById('how').onclick=()=>alert('CONTROLES\\n\\nCelular: ◀ ▶ para andar e ⬆ para pular.\\nTeclado: A/D ou ←/→ e Espaço.\\nP = pausa.\\n\\nPasse pela bandeira para concluir cada fase. Na Fase 50, salve o Tio Felipe!');
+document.getElementById('sound').onclick=()=>{audioOn=!audioOn;document.getElementById('sound').textContent=audioOn?'🔊 SOM: ON':'🔇 SOM: OFF';if(audioOn)audio()};
+document.getElementById('pause').onclick=()=>{if(!running)return;paused=true;pauseScreen.classList.remove('hidden')};
+document.getElementById('resume').onclick=()=>{paused=false;pauseScreen.classList.add('hidden');last=performance.now()};
+document.getElementById('quit').onclick=()=>{paused=false;running=false;pauseScreen.classList.add('hidden');hud.classList.add('hidden');controls.classList.add('hidden');menu.classList.remove('hidden')};
+document.getElementById('nextLevel').onclick=()=>{winScreen.classList.add('hidden');if(level===50&&document.getElementById('winTitle').textContent.includes('SALVO'))startGame(1);else startGame(level>=50?1:level+1)};
+function bind(id,key){const b=document.getElementById(id);b.addEventListener('pointerdown',e=>{e.preventDefault();audio();if(key==='jump')jumpQueued=true;else keys[key]=true});['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,e=>{if(key!=='jump')keys[key]=false}))}
+bind('left','left');bind('right','right');bind('jump','jump');
+addEventListener('keydown',e=>{if(e.code==='ArrowLeft'||e.code==='KeyA')keys.left=true;if(e.code==='ArrowRight'||e.code==='KeyD')keys.right=true;if(e.code==='Space'||e.code==='ArrowUp'){e.preventDefault();jumpQueued=true}if(e.code==='KeyP'||e.code==='Escape'){if(running){paused=!paused;pauseScreen.classList.toggle('hidden',!paused);last=performance.now()}}});
+addEventListener('keyup',e=>{if(e.code==='ArrowLeft'||e.code==='KeyA')keys.left=false;if(e.code==='ArrowRight'||e.code==='KeyD')keys.right=false});
+</script>
+</body>
+</html>
